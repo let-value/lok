@@ -3,7 +3,7 @@ package crypto
 import (
 	"crypto/cipher"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -55,11 +55,11 @@ func EncryptString(inputString string, cipher cipher.AEAD) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return hex.EncodeToString(encrypted), nil
+	return base64.URLEncoding.EncodeToString(encrypted), nil
 }
 
 func DecryptString(encryptedString string, cipher cipher.AEAD) (string, error) {
-	data, err := hex.DecodeString(encryptedString)
+	data, err := base64.URLEncoding.DecodeString(encryptedString)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode hex string: %v", err)
 	}

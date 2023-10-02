@@ -48,7 +48,6 @@ func TestTraverse(t *testing.T) {
 
 	Traverse(root, processFunc)
 
-	// Validate that children are processed before their parent.
 	for path, order := range processedOrder {
 		node := nodes[path]
 		for _, child := range node.Children {

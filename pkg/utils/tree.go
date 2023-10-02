@@ -29,7 +29,7 @@ func generatePathParts(path string) []string {
 	return parts
 }
 
-func BuildTree(files []string, encrypted bool) *Node {
+func BuildTree(files []string) *Node {
 	root := &Node{
 		Path:     "",
 		Name:     "",
@@ -86,7 +86,6 @@ func Traverse(node *Node, processFunc func(*Node)) {
 		return
 	}
 
-	// Channel to wait for children to complete.
 	done := make(chan bool)
 
 	go func() {
