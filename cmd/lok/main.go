@@ -13,6 +13,8 @@ import (
 	utils "github.com/let-value/lok/pkg/shared"
 )
 
+const encryptedFileExtension = ".lokd"
+
 func encrypt(globPattern string, password string, dryRun bool) {
 	// Find files matching the glob pattern
 	var basepath, pattern = doublestar.SplitPattern(filepath.ToSlash(globPattern))
@@ -59,7 +61,7 @@ func encrypt(globPattern string, password string, dryRun bool) {
 			return
 		}
 
-		encryptedName = encryptedName + ".lokd"
+		encryptedName = encryptedName + encryptedFileExtension
 
 		if dryRun {
 			// For dry run, just display the name before and after encryption
@@ -68,11 +70,11 @@ func encrypt(globPattern string, password string, dryRun bool) {
 			return
 		}
 
-		newPath := filepath.Join(filepath.Dir(node.Path), encryptedName)
+		newPath := filepath.Join(filepath.Dir(fullPath), encryptedName)
 
 		if isDir {
 			// Encrypt directory name and rename the directory
-			if err := os.Rename(node.Path, newPath); err != nil {
+			if err := os.Rename(fullPath, newPath); err != nil {
 				fmt.Printf("Error renaming directory %s: %v\n", node.Path, err)
 			}
 
@@ -80,15 +82,18 @@ func encrypt(globPattern string, password string, dryRun bool) {
 		}
 
 		// Encrypt file name and contents
-		data, err := os.ReadFile(node.Path)
+		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			fmt.Printf("Error reading file %s: %v\n", node.Path, err)
 			return
 		}
 
 		// Encrypt the data
-		nonce := crypto.DeriveNonce(data, cipher)
-		encryptedData := cipher.Seal(nil, nonce, data, nil)
+		encryptedData, err := crypto.EncryptBytes(data, node.Name, cipher)
+		if err != nil {
+			fmt.Printf("Error encrypting file %s: %v\n", node.Path, err)
+			return
+		}
 
 		// Write encrypted data back to the file
 		if err := os.WriteFile(newPath, encryptedData, 0644); err != nil {
@@ -97,7 +102,7 @@ func encrypt(globPattern string, password string, dryRun bool) {
 		}
 
 		// Remove the original file
-		if err := os.Remove(node.Path); err != nil {
+		if err := os.Remove(fullPath); err != nil {
 			fmt.Printf("Error removing original file %s: %v\n", node.Path, err)
 		}
 
@@ -109,6 +114,114 @@ func encrypt(globPattern string, password string, dryRun bool) {
 }
 
 func decrypt(globPattern string, password string, dryRun bool) {
+	const encryptedPattern = "**/*.lokd"
+	// Find files matching the glob pattern
+	var basepath, pattern = doublestar.SplitPattern(filepath.ToSlash(globPattern))
+
+	fsys := os.DirFS(basepath)
+	files, err := doublestar.Glob(fsys, encryptedPattern)
+	if err != nil {
+		fmt.Println("Error reading files:", err)
+		return
+	}
+
+	if len(files) == 0 {
+		fmt.Println("No files found matching the pattern:", encryptedPattern)
+		return
+	}
+
+	// Build a tree of files
+	root := utils.BuildTree(files, false)
+
+	cipher, err := crypto.CreateCipher(password)
+	if err != nil {
+		fmt.Println("Error creating cipher:", err)
+		return
+	}
+
+	// Traverse tree and decrypt file names
+	processFunc := func(node *utils.Node) {
+		if node.Path == "" || node.Path == "." {
+			// Skip root node
+			return
+		}
+
+		fullPath := filepath.Join(basepath, node.Path)
+		fileInfo, err := os.Stat(fullPath)
+		if err != nil {
+			fmt.Printf("Error accessing %s: %v\n", fullPath, err)
+			return
+		}
+
+		isDir := fileInfo.IsDir()
+
+		if !strings.HasSuffix(node.Name, encryptedFileExtension) {
+			// Skip files that don't have the encrypted file extension
+			return
+		}
+
+		// Assuming you have a function in crypto package to decrypt strings
+		decryptedName, err := crypto.DecryptString(strings.TrimSuffix(node.Name, ".lokd"), cipher)
+		if err != nil {
+			fmt.Printf("Error decrypting name %s: %v\n", node.Path, err)
+			return
+		}
+
+		is_target, err := doublestar.Match(pattern, decryptedName)
+		if err != nil {
+			fmt.Printf("Error matching pattern %s: %v\n", pattern, err)
+			return
+		}
+
+		if !is_target {
+			// Skip files that don't match the pattern
+			return
+		}
+
+		if dryRun {
+			// For dry run, just display the name before and after decryption
+			fmt.Printf("%s -> %s\n", node.Path, decryptedName)
+			return
+		}
+
+		newPath := filepath.Join(filepath.Dir(fullPath), decryptedName)
+
+		if isDir {
+			// Decrypt directory name and rename the directory
+			if err := os.Rename(fullPath, newPath); err != nil {
+				fmt.Printf("Error renaming directory %s: %v\n", fullPath, err)
+			}
+			return
+		}
+
+		// Decrypt file name and contents
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			fmt.Printf("Error reading file %s: %v\n", fullPath, err)
+			return
+		}
+
+		// Decrypt the data
+		decryptedData, err := crypto.DecryptBytes(data, decryptedName, cipher)
+		if err != nil {
+			fmt.Printf("Error decrypting file %s: %v\n", fullPath, err)
+			return
+		}
+
+		// Write decrypted data back to the file
+		if err := os.WriteFile(newPath, decryptedData, 0644); err != nil {
+			fmt.Printf("Error writing to file %s: %v\n", newPath, err)
+			return
+		}
+
+		// Remove the original file
+		if err := os.Remove(fullPath); err != nil {
+			fmt.Printf("Error removing original file %s: %v\n", fullPath, err)
+		}
+	}
+
+	utils.Traverse(root, processFunc)
+
 	return
 }
 
